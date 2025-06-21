@@ -1,0 +1,24 @@
+project:
+  root_folder: { YOUR_PROJECT_ROOT_PATH }
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    database: { YOUR_DATABASE }
+    username: root
+    password: { YOUR_DATABASE_PASSWORD }
+  redis:
+    host: { YOUR_REDIS_HOST }
+    password: { YOUR_REDIS_PASSWORD }
+    database: 0
+    port: 6379
+  wechat:
+    app-id: { YOUR_WECHAT_APPID }
+    app-secret: { YOUR_WECHAT_SECRET }
+    redirect-url: { YOUR_WECHAT_REDIRECT_URL }
+  qq:
+    app-id: { YOUR_QQ_APPID }
+    app-key: { YOUR_QQ_KEY }
+    redirect-url: { YOUR_QQ_REDIRECT_URL }
+  token:
+    secret-key: { YOUR_JWT_SECRET }
