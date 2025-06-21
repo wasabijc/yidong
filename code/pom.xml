@@ -12,6 +12,7 @@
         <module>generate_data</module>
         <module>realtime</module>
         <module>offline_spark</module>
+        <module>population-api</module>
     </modules>
 
     <properties>
