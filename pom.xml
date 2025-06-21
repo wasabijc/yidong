@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Maven项目配置文件的根元素 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <!-- Maven模型版本，固定为4.0.0 -->
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 项目坐标，包括组织名（groupId）、模块名（artifactId）和版本号（version） -->
+    <groupId>com.temp</groupId>
+    <artifactId>temp</artifactId>
+    <version>1.0.0</version>
+
+    <!-- 配置属性，便于统一管理和引用 -->
+    <properties>
+        <!-- 指定项目的源码编码格式 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 指定编译器的Java版本 -->
+        <maven.compiler.source>20</maven.compiler.source>
+        <maven.compiler.target>20</maven.compiler.target>
+        <!-- 跳过测试 -->
+        <skipTest>true</skipTest>
+        <!-- 指定Spring Boot Mail版本 -->
+        <springboot.mail.version>3.2.5</springboot.mail.version>
+        <!-- 定义MySQL驱动的版本 -->
+        <mysql.version>8.3.0</mysql.version>
+        <!-- 定义Apache Commons Lang库的版本 -->
+        <apache.commons.lang3.version>3.13.0</apache.commons.lang3.version>
+        <!-- 定义Apache Commons IO库的版本 -->
+        <apache.commons.io.version>2.13.0</apache.commons.io.version>
+        <!-- 定义Apache Commons Codec库的版本 -->
+        <apache.commons.codec.version>1.16.1</apache.commons.codec.version>
+        <!-- 定义SLF4J日志框架的版本 -->
+        <slf4j.version>2.0.13</slf4j.version>
+        <!-- 定义Logback日志实现的版本 -->
+        <logback.version>1.4.14</logback.version>
+        <!-- 定义AspectJ版本 -->
+        <aspect.version>1.9.4</aspect.version>
+        <!-- 定义Mybatis版本 -->
+        <mybatis.version>3.5.5</mybatis.version>
+        <!-- 定义knife4j版本 -->
+        <knife4j.version>3.0.2</knife4j.version>
+        <!-- 定义redis版本 -->
+        <redis.version>3.2.5</redis.version>
+        <!-- 定义jwt版本 -->
+        <jwt.version>0.9.1</jwt.version>
+        <!-- 添加 Jackson 版本 -->
+        <jackson.version>2.15.0</jackson.version>
+        <!-- 定义okhttp版本 -->
+        <okhttp.version>5.0.0-alpha.3</okhttp.version>
+        <!-- 定义fastjson版本 -->
+        <fastjson.version>2.0.0</fastjson.version>
+        <!-- 定义springboot-test版本 -->
+        <springboot-test.version>3.3.2</springboot-test.version>
+    </properties>
+
+    <!-- 项目依赖 -->
+    <dependencies>
+        <!-- Spring Boot Web启动器 依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>3.2.5</version>
+        </dependency>
+        <!-- MySQL连接器 依赖 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>${mysql.version}</version>
+        </dependency>
+        <!-- AspectJ织入器 依赖 -->
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>${aspect.version}</version>
+        </dependency>
+        <!-- Apache Commons IO 库依赖 -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>${apache.commons.io.version}</version>
+        </dependency>
+        <!-- Apache Commons Codec 库依赖 -->
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>${apache.commons.codec.version}</version>
+        </dependency>
+        <!-- Spring事务管理 依赖 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <version>6.1.6</version>
+        </dependency>
+        <!-- MyBatis Plus 依赖 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>${mybatis.version}</version>
+        </dependency>
+        <!-- Knife4j 库依赖 -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-spring-boot-starter</artifactId>
+            <version>${knife4j.version}</version>
+        </dependency>
+        <!-- Redis 库依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <version>${redis.version}</version>
+        </dependency>
+        <!-- JWT 库依赖 -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt</artifactId>
+            <version>${jwt.version}</version>
+        </dependency>
+        <!-- Jackson 库依赖，处理xml -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <!-- JAXB 依赖 -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <!-- okhttp 依赖 -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>${okhttp.version}</version>
+        </dependency>
+        <!--    阿里的fastjson2    -->
+        <dependency>
+            <groupId>com.alibaba.fastjson2</groupId>
+            <artifactId>fastjson2</artifactId>
+            <version>${fastjson.version}</version>
+        </dependency>
+        <!--  springboot测试依赖  -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${springboot-test.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- 构建配置 -->
+    <build>
+        <plugins>
+            <!-- Spring Boot插件 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.2.5</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <!-- 指定主类 -->
+                    <mainClass>com.lingopan.LingoPanApplication</mainClass>
+                </configuration>
+            </plugin>
+            <!-- 编译插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                    <compilerArgs>
+                        <arg>-parameters</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <!-- 资源插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.2.0</version>
+                <configuration>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

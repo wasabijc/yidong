@@ -166,9 +166,6 @@ public class GenerateData {
 
                 // 输出生成的记录
                 System.out.println(record);
-
-                // TODO 这边是不是要给到Kafka这边
-
             }
 
             // 暂停100毫秒模拟实时数据
