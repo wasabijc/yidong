@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    clickhouse:
+      url: jdbc:clickhouse://localhost:8123/default
+      username: default
+      password:
+
+dify:
+  agent:
+    url: http://dify-agent:8080
+
+server:
+  port: 8080
