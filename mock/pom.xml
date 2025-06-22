@@ -182,7 +182,7 @@
                 </executions>
                 <configuration>
                     <!-- 指定主类 -->
-                    <mainClass>com.lingopan.LingoPanApplication</mainClass>
+                    <mainClass>com.example.PopulationApplication</mainClass>
                 </configuration>
             </plugin>
             <!-- 编译插件 -->

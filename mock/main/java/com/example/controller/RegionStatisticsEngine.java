@@ -46,7 +46,7 @@ public class RegionStatisticsEngine {
                 else snapshot.incrementAge40Plus();
             }
 
-            snapshots.addFirst(snapshot); // 添加到队列头部
+            snapshots.addFirst(snapshot);
         }
     }
 
