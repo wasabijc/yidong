@@ -1,7 +1,7 @@
-package com.example.api.controller;
+package org.example.api.controller;
 
-import com.example.api.model.PopulationResponse;
-import com.example.api.model.RecentPopulation;
+import org.example.api.model.PopulationResponse;
+import org.example.api.model.RecentPopulation;
 import com.example.api.service.PopulationService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;

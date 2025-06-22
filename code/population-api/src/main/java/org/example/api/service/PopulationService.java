@@ -1,8 +1,8 @@
-package com.example.api.service;
+package org.example.api.service;
 
-import com.example.api.model.PopulationResponse;
-import com.example.api.model.RecentPopulation;
-import com.example.api.repository.ClickHouseRepository;
+import org.example.api.model.PopulationResponse;
+import org.example.api.model.RecentPopulation;
+import org.example.api.repository.ClickHouseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
