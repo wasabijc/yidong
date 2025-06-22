@@ -1,81 +1,113 @@
 package core
 
-import com.clickhouse.jdbc.ClickHouseDataSource
-import org.apache.spark.{SparkConf, SparkContext}
-import ru.yandex.clickhouse.settings.ClickHouseQueryParam
+import org.apache.flink.api.common.functions.RichMapFunction
+import org.apache.flink.configuration.Configuration
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction
+import org.apache.flink.streaming.api.functions.source.SourceFunction
+import org.apache.flink.streaming.api.scala._
 import utils.ClickhouseTool
 
-import java.util.Properties
+import java.sql.{Connection, Statement}
 
 /**
- * 用户位图索引生成器
+ * Flink 用户位图索引生成器 (版本1.6.1)
  *
  * 功能：为每个用户生成唯一的位图ID并存储到ClickHouse的USER_INDEX表中
  *
  * 主要处理流程：
  * 1. 从HDFS加载用户信息数据（格式：IMSI|性别|年龄）
- * 2. 为每个用户分配唯一的数字ID（使用zipWithUniqueId）
+ * 2. 为每个用户分配唯一的数字ID
  * 3. 将用户IMSI和对应的唯一ID写入ClickHouse
- *
- * 执行频率：根据用户信息变化情况定期执行
- *
- * 输出表结构（ClickHouse的USER_INDEX表）：
- * | 列名     | 类型    | 描述          |
- * |----------|---------|-------------|
- * | IMSI     | String  | 用户唯一标识    |
- * | BITMAP_ID| UInt64  | 用户位图唯一ID  |
  */
 object CalUserBitmapIndex {
 
+  // 用户数据模型
+  case class UserRecord(imsi: String, var bitmapId: Long = 0L)
+
+  /**
+   * 自定义数据源 - 模拟从HDFS读取数据
+   */
+  class UserDataSource extends SourceFunction[String] {
+    private var isRunning = true
+
+    override def run(ctx: SourceFunction.SourceContext[String]): Unit = {
+      // 模拟数据（生产环境替换为实际HDFS路径）
+      val sampleData = Seq(
+        "460001234567890|1|25",
+        "460001234567891|0|35",
+        "460001234567892|1|15"
+      )
+
+      while (isRunning) {
+        sampleData.foreach { line =>
+          ctx.collect(line)
+        }
+        Thread.sleep(5000) // 模拟批处理间隔
+      }
+    }
+
+    override def cancel(): Unit = {
+      isRunning = false
+    }
+  }
+
   /**
    * 主入口方法
-   *
-   * @param args 命令行参数（未使用）
    */
   def main(args: Array[String]): Unit = {
-    // 1. 初始化Spark配置
-    val conf = new SparkConf()
-      .setAppName("CalUserBitmapIndex")  // 设置应用名称
-      .setMaster("local")                // 本地模式运行（生产环境应移除）
+    // 1. 初始化Flink环境
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setParallelism(2) // 设置并行度
 
-    // 2. 创建SparkContext
-    val sc = new SparkContext(conf)
+    // 2. 创建数据源（生产环境替换为HDFS源）
+    val userStream = env.addSource(new UserDataSource)
 
-    // 3. 从HDFS加载用户信息数据并处理
-    sc.textFile("hdfs://bigdata01:9000/data/userInfo")  // 读取HDFS文件
-      .map { line =>
-        // 3.1 解析每行数据，提取IMSI
-        val arr = line.split("\\|")  // 按竖线分割
-        arr(0)                       // 返回IMSI（第一列）
-      }
-      // 3.2 为每个用户分配唯一ID（延迟计算，不立即执行）
-      .zipWithUniqueId()
-      // 3.3 将结果写入ClickHouse（按分区并行处理）
-      .foreachPartition { partition =>
-        // 获取ClickHouse连接（每个分区一个连接）
-        val conn = ClickhouseTool.getConn()
-        val stmt = conn.createStatement()
+    // 3. 处理数据流
+    val processedStream = userStream
+      .map(_.split("\\|")) // 解析每行数据
+      .map(arr => UserRecord(arr(0))) // 提取IMSI
+      .map(new RichMapFunction[UserRecord, UserRecord] {
+        private var idCounter = 0L
 
-        try {
-          // 处理当前分区的所有记录
-          partition.foreach { case (imsi, id) =>
-            // 构造并执行插入语句
-            val sql =
-              s"""
-                INSERT INTO USER_INDEX
-                (IMSI, BITMAP_ID)
-                VALUES('${imsi}','${id}')
-              """
-            stmt.executeUpdate(sql)
-          }
-        } finally {
-          // 确保连接关闭
-          stmt.close()
-          conn.close()
+        override def open(parameters: Configuration): Unit = {
+          // 初始化ID计数器（每个并行任务独立计数）
+          idCounter = getRuntimeContext.getIndexOfThisSubtask * 1000000L
         }
+
+        override def map(value: UserRecord): UserRecord = {
+          value.bitmapId = idCounter
+          idCounter += 1
+          value
+        }
+      })
+
+    // 4. 写入ClickHouse
+    processedStream.addSink(new RichSinkFunction[UserRecord] {
+      private var conn: Connection = _
+      private var stmt: Statement = _
+
+      override def open(parameters: Configuration): Unit = {
+        conn = ClickhouseTool.getConn()
+        stmt = conn.createStatement()
       }
 
-    // 4. 停止SparkContext释放资源
-    sc.stop()
+      override def invoke(value: UserRecord): Unit = {
+        val sql =
+          s"""
+            INSERT INTO USER_INDEX
+            (IMSI, BITMAP_ID)
+            VALUES('${value.imsi}', ${value.bitmapId})
+          """
+        stmt.executeUpdate(sql)
+      }
+
+      override def close(): Unit = {
+        if (stmt != null) stmt.close()
+        if (conn != null) conn.close()
+      }
+    })
+
+    // 5. 执行任务
+    env.execute("Flink User Bitmap Index Job")
   }
 }
