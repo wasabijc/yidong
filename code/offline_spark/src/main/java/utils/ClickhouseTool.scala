@@ -1,19 +1,20 @@
 package utils
 
 import com.clickhouse.jdbc.ClickHouseDataSource
-import ru.yandex.clickhouse.settings.ClickHouseQueryParam
-
 import java.util.Properties
 
 object ClickhouseTool {
-  def getConn()={
+
+  def getConn() = {
     val url = "jdbc:clickhouse://bigdata01:8123"
     val prop = new Properties()
-    prop.setProperty(ClickHouseQueryParam.USER.getKey, "default")
-    prop.setProperty(ClickHouseQueryParam.PASSWORD.getKey, "clickhouse")
+
+    // 新版使用标准的 JDBC 属性设置用户名和密码
+    prop.setProperty("user", "default")
+    prop.setProperty("password", "clickhouse")
+
     val dataSource = new ClickHouseDataSource(url, prop)
     val conn = dataSource.getConnection
     conn
   }
-
 }
