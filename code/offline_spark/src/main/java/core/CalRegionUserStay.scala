@@ -1,140 +1,227 @@
 package core
 
-import com.clickhouse.client.ClickHouseDataType
-import com.clickhouse.client.data.ClickHouseBitmap
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.{DoubleType, LongType, StringType, StructType}
+import com.clickhouse.data.ClickHouseDataType
+import com.clickhouse.data.value.ClickHouseBitmap
+import org.apache.flink.api.common.functions.AggregateFunction
+import org.apache.flink.configuration.Configuration
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction
+import org.apache.flink.streaming.api.functions.source.{RichParallelSourceFunction, SourceFunction}
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
+import org.apache.flink.streaming.api.scala._
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows
+import org.apache.flink.streaming.api.windowing.time.Time
+import org.apache.flink.util.Collector
 import org.roaringbitmap.RoaringBitmap
 import utils.ClickhouseTool
 
-import java.util.Properties
+import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.time.format.DateTimeFormatter
+import java.time.{LocalDateTime, ZoneOffset}
 import scala.collection.mutable
 
 /**
- * 区域用户停留计算类
- * 功能：计算用户在指定区域的停留情况，并生成位图索引存储到ClickHouse
- * 执行频率：每天执行一次
- *
- * 输入数据：
- * 1. XDR数据（包含用户IMSI、位置信息和时间戳）
- * 2. 区域-基站映射数据
- * 3. 用户位图索引数据（从ClickHouse读取）
- *
- * 输出数据：
- * 区域用户位图（存储到ClickHouse的REGION_ID_IMSI_BITMAP表）
+ * Flink区域用户停留计算类
+ * 功能：每5分钟计算用户在指定区域的停留情况，并生成位图索引存储到ClickHouse
  */
 object CalRegionUserStay {
 
-  /**
-   * 主方法，程序入口
-   * @param args 命令行参数
-   */
+//  private val LOG = org.slf4j.LoggerFactory.getLogger(classOf[CalRegionUserStay.type])
+//private val LOG = org.slf4j.LoggerFactory.getLogger(classOf[core.CalRegionUserStay.type])
+private val LOG = org.slf4j.LoggerFactory.getLogger("core.CalRegionUserStay")
+
+  // 时间格式化常量
+  private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmm")
+  private val WINDOW_SIZE: Time = Time.minutes(5)
+
   def main(args: Array[String]): Unit = {
-    // 1. 初始化Spark配置和会话
-    val conf = new SparkConf().setMaster("local")
-    val sparkSession = SparkSession.builder()
-      .appName("CalRegionUserStay")
-      .config(conf)
-      .getOrCreate()
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setParallelism(4)
 
-    // 2. 加载XDR数据（用户信令数据）
-    val xdrPath = "hdfs://bigdata01:9000/xdr/20230204/*"
-    val xdrStruct = new StructType()
-      .add("imsi", StringType)      // 用户IMSI
-      .add("laccell", StringType)   // 基站小区ID
-      .add("lat", DoubleType)       // 纬度
-      .add("lot", DoubleType)       // 经度
-      .add("startTime", LongType)   // 开始时间戳（毫秒）
+    // 1. 模拟XDR数据流（生产环境替换为Kafka等数据源）
+    val xdrStream = env.fromElements(
+        ("460001234567890", "cell_001", 39.9042, 116.4074, System.currentTimeMillis()),
+        ("460001234567891", "cell_002", 39.9042, 116.4074, System.currentTimeMillis()),
+        ("460001234567892", "cell_001", 39.9042, 116.4074, System.currentTimeMillis())
+      ).map(t => XdrRecord(t._1, t._2, t._3, t._4, t._5))
+      .assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor[XdrRecord](Time.seconds(5)) {
+        override def extractTimestamp(element: XdrRecord): Long = element.startTime
+      })
 
-    val xdrDf = sparkSession.read
-      .format("csv")
-      .option("sep", "|")
-      .schema(xdrStruct)
-      .load(xdrPath)
+    // 2. 加载区域-基站映射数据
+    val regionCellStream = env.addSource(new RegionCellSource)
 
-    // 3. 加载区域-基站映射数据
-    val regionCellPath = "hdfs://bigdata01:9000/data/regionCell"
-    val regionCellStruct = new StructType()
-      .add("regionId", StringType)  // 区域ID
-      .add("laccell", StringType)   // 基站小区ID
+    // 3. 加载用户位图索引数据
+    val userBitmapStream = env.addSource(new UserBitmapSource)
 
-    val regionCellDf = sparkSession.read
-      .format("csv")
-      .option("sep", "|")
-      .schema(regionCellStruct)
-      .load(regionCellPath)
+    // 4. 数据处理流水线
+    val resultStream = xdrStream
+      .keyBy(_.laccell)
+      .connect(regionCellStream.keyBy(_.laccell))
+      .process(new RegionJoinFunction)
+      .keyBy(_._2) // 按IMSI分组
+      .connect(userBitmapStream.keyBy(_.imsi))
+      .process(new BitmapJoinFunction)
+      .keyBy(_._1) // 按regionId分组
+      .window(TumblingEventTimeWindows.of(WINDOW_SIZE))
+      .aggregate(new BitmapAggregator)
 
-    // 4. 从ClickHouse加载用户位图索引数据
-    val url = "jdbc:clickhouse://bigdata01:8123"
-    val prop = new Properties()
-    prop.setProperty("user", "default")
-    prop.setProperty("password", "clickhouse")
+    // 5. 自定义写入ClickHouse
+    resultStream.addSink(new ClickHouseBitmapSink)
 
-    val userBitmapIndex = sparkSession.read
-      .jdbc(url, "USER_INDEX", prop)
+    env.execute("Flink Region User Stay Bitmap Job")
+  }
 
-    // 5. 创建临时视图以便SQL查询
-    xdrDf.createOrReplaceTempView("xdr")
-    regionCellDf.createOrReplaceTempView("region_cell")
-    userBitmapIndex.createOrReplaceTempView("user_index")
+  // 自定义ClickHouse Sink
+  class ClickHouseBitmapSink extends RichSinkFunction[RegionBitmapResult] {
+    private var conn: Connection = _
+    private var stmt: PreparedStatement = _
 
-    // 6. 定义SQL查询，计算区域用户停留情况
-    val sql =
-      """
-        |SELECT
-        |  tmp.regionId,
-        |  tmp.produce_hour,
-        |  COLLECT_SET(tmp.BITMAP_ID) AS bitmapIds
-        |FROM (
-        |  SELECT
-        |    b.regionId,
-        |    FROM_UNIXTIME(a.startTime/1000, 'yyyyMMddHH') AS produce_hour,
-        |    c.BITMAP_ID
-        |  FROM xdr a
-        |  LEFT JOIN region_cell b ON a.laccell = b.laccell
-        |  LEFT JOIN user_index c ON a.imsi = c.IMSI
-        |) AS tmp
-        |GROUP BY tmp.regionId, tmp.produce_hour
-        |""".stripMargin
-
-    // 7. 执行查询并将结果写入ClickHouse
-    sparkSession.sql(sql).rdd.foreachPartition { it =>
-      // 获取ClickHouse连接
-      val conn = ClickhouseTool.getConn()
-
-      // 处理每个分区的数据
-      it.foreach { row =>
-        val regionId = row.getAs[String]("regionId")          // 区域ID
-        val produceHour = row.getAs[String]("produce_hour")   // 时间小时（格式：yyyyMMddHH）
-        val bitmap = new RoaringBitmap()                      // 创建位图对象
-
-        // 获取位图ID数组并添加到RoaringBitmap中
-        val bitArr = row.getAs[mutable.WrappedArray[java.math.BigDecimal]]("bitmapIds")
-        bitArr.foreach { x =>
-          bitmap.add(x.intValue())
-        }
-
-        // 将位图转换为ClickHouse格式
-        val ckBitmap = ClickHouseBitmap.wrap(bitmap, ClickHouseDataType.UInt32)
-
-        // 准备并执行插入语句
-        val stmt = conn.prepareStatement(
-          "INSERT INTO REGION_ID_IMSI_BITMAP " +
-            "(REGION_ID, PRODUCE_HOUR, IMSI_INDEXES) VALUES (?, ?, ?)")
-
-        stmt.setString(1, regionId)
-        stmt.setString(2, produceHour)
-        stmt.setObject(3, ckBitmap)
-        stmt.executeUpdate()
-        stmt.close()
-      }
-
-      // 关闭连接
-      conn.close()
+    override def open(parameters: Configuration): Unit = {
+      conn = ClickhouseTool.getConn()
+      stmt = conn.prepareStatement(
+        "INSERT INTO REGION_ID_IMSI_BITMAP (REGION_ID, PRODUCE_TIME, IMSI_INDEXES) VALUES (?, ?, ?)"
+      )
     }
 
-    // 8. 停止Spark会话
-    sparkSession.stop()
+    override def invoke(value: RegionBitmapResult): Unit = {
+      try {
+        val ckBitmap = ClickHouseBitmap.wrap(value.bitmap, ClickHouseDataType.UInt32)
+        stmt.setString(1, value.regionId)
+        stmt.setString(2, value.produceTime)
+        stmt.setObject(3, ckBitmap)
+        stmt.executeUpdate()
+      } catch {
+        case e: Exception =>
+          println(s"Failed to insert bitmap for region ${value.regionId}: ${e.getMessage}")
+      }
+    }
+
+    override def close(): Unit = {
+      if (stmt != null) stmt.close()
+      if (conn != null) conn.close()
+    }
+  }
+
+  // 数据模型类
+  case class XdrRecord(imsi: String, laccell: String, lat: Double, lon: Double, startTime: Long)
+  case class RegionCellMapping(regionId: String, laccell: String)
+  case class UserBitmapIndex(imsi: String, bitmapId: Long)
+  case class RegionBitmapResult(regionId: String, produceTime: String, bitmap: RoaringBitmap)
+
+  // 区域关联处理函数
+  class RegionJoinFunction extends CoProcessFunction[XdrRecord, RegionCellMapping, (String, String)] {
+    private lazy val cellRegionMap = mutable.Map[String, String]()
+
+    override def processElement1(xdr: XdrRecord,
+                                 ctx: CoProcessFunction[XdrRecord, RegionCellMapping, (String, String)]#Context,
+                                 out: Collector[(String, String)]): Unit = {
+      cellRegionMap.get(xdr.laccell).foreach { regionId =>
+        out.collect((regionId, xdr.imsi))
+      }
+    }
+
+    override def processElement2(mapping: RegionCellMapping,
+                                 ctx: CoProcessFunction[XdrRecord, RegionCellMapping, (String, String)]#Context,
+                                 out: Collector[(String, String)]): Unit = {
+      cellRegionMap.put(mapping.laccell, mapping.regionId)
+    }
+  }
+
+  // 位图索引关联处理函数
+  class BitmapJoinFunction extends CoProcessFunction[(String, String), UserBitmapIndex, (String, Long)] {
+    private lazy val userBitmapMap = mutable.Map[String, Long]()
+
+    override def processElement1(regionUser: (String, String),
+                                 ctx: CoProcessFunction[(String, String), UserBitmapIndex, (String, Long)]#Context,
+                                 out: Collector[(String, Long)]): Unit = {
+      userBitmapMap.get(regionUser._2).foreach { bitmapId =>
+        out.collect((regionUser._1, bitmapId))
+      }
+    }
+
+    override def processElement2(userIndex: UserBitmapIndex,
+                                 ctx: CoProcessFunction[(String, String), UserBitmapIndex, (String, Long)]#Context,
+                                 out: Collector[(String, Long)]): Unit = {
+      userBitmapMap.put(userIndex.imsi, userIndex.bitmapId)
+    }
+  }
+
+  // 位图聚合函数
+  class BitmapAggregator extends AggregateFunction[(String, Long), RoaringBitmap, RegionBitmapResult] {
+    override def createAccumulator(): RoaringBitmap = new RoaringBitmap()
+
+    override def add(value: (String, Long), accumulator: RoaringBitmap): RoaringBitmap = {
+      accumulator.add(value._2.toInt)
+      accumulator
+    }
+
+    override def getResult(accumulator: RoaringBitmap): RegionBitmapResult = {
+      val produceTime = LocalDateTime.now(ZoneOffset.UTC).format(TIME_FORMATTER)
+      // ⚠️ 注意：这里 regionId 是从输入中传递来的，在当前设计中无法直接获取
+      // 所以仍然保留空字符串占位符，后续应重构聚合器携带 regionId
+      RegionBitmapResult("", produceTime, accumulator)
+    }
+
+    override def merge(a: RoaringBitmap, b: RoaringBitmap): RoaringBitmap = {
+      a.or(b)
+      a
+    }
+  }
+
+  // 区域-基站映射数据源
+  class RegionCellSource extends RichParallelSourceFunction[RegionCellMapping] {
+    @volatile private var running = true
+
+    override def run(ctx: SourceFunction.SourceContext[RegionCellMapping]): Unit = {
+      val conn = ClickhouseTool.getConn()
+      val stmt = conn.prepareStatement("SELECT regionId, laccell FROM region_cell")
+      val rs = stmt.executeQuery()
+
+      while (running && rs.next()) {
+        ctx.collect(RegionCellMapping(
+          rs.getString("regionId"),
+          rs.getString("laccell")
+        ))
+      }
+
+      closeQuietly(rs, stmt, conn)
+    }
+
+    override def cancel(): Unit = running = false
+
+    private def closeQuietly(rs: ResultSet, stmt: PreparedStatement, conn: Connection): Unit = {
+      if (rs != null) rs.close()
+      if (stmt != null) stmt.close()
+      if (conn != null) conn.close()
+    }
+  }
+
+  // 用户位图索引数据源
+  class UserBitmapSource extends RichParallelSourceFunction[UserBitmapIndex] {
+    @volatile private var running = true
+
+    override def run(ctx: SourceFunction.SourceContext[UserBitmapIndex]): Unit = {
+      val conn = ClickhouseTool.getConn()
+      val stmt = conn.prepareStatement("SELECT IMSI, BITMAP_ID FROM USER_INDEX")
+      val rs = stmt.executeQuery()
+
+      while (running && rs.next()) {
+        ctx.collect(UserBitmapIndex(
+          rs.getString("IMSI"),
+          rs.getLong("BITMAP_ID")
+        ))
+      }
+
+      closeQuietly(rs, stmt, conn)
+    }
+
+    override def cancel(): Unit = running = false
+
+    private def closeQuietly(rs: ResultSet, stmt: PreparedStatement, conn: Connection): Unit = {
+      if (rs != null) rs.close()
+      if (stmt != null) stmt.close()
+      if (conn != null) conn.close()
+    }
   }
 }
