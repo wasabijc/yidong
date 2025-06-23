@@ -74,10 +74,10 @@ public class ClickHouseRepository {
     /**
      * 执行分组查询（年龄、性别）
      */
-    private Map<String, Long> executeGroupQuery(String sql, String regionId, LocalDateTime startTime, LocalDateTime endTime) {
+    private Map<String, Long> executeGroupQuery(String search, String regionId, LocalDateTime startTime, LocalDateTime endTime) {
         Map<String, Long> result = new HashMap<>();
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(search)) {
 
             stmt.setString(1, regionId);
             stmt.setObject(2, startTime);
